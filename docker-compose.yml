@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  task:
+    build:
+      context: .
+    #entrypoint: /start.sh
+    command: bundle exec buildpack-packager --uncached --cached
+    environment:
+      BUNDLE_GEMFILE: cf.Gemfile 
+    volumes:
+      - ./:/buildpack
+    env_file:
+      - '.env'
