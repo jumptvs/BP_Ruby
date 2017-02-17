@@ -538,7 +538,7 @@ WARNING
     instrument 'ruby.update_bundler' do
       log("bundle") do
         bundle_bin     = "bundle"
-        bundle_command = "#{bundle_bin} update --source core --path vendor/bundle --binstubs #{bundler_binstubs_path}"
+        bundle_command = "#{bundle_bin} update --source core"
 
         if File.exist?("#{Dir.pwd}/.bundle/config")
           warn(<<-WARNING, inline: true)
@@ -566,7 +566,7 @@ WARNING
           bundle_command += " --deployment"
         end
 
-        topic("Installing dependencies using bundler #{bundler.version}")
+        topic("Updating Jump Core using bundler #{bundler.version}")
         load_bundler_cache
 
         bundler_output = ""
@@ -584,7 +584,7 @@ WARNING
         }
         env_vars["BUNDLER_LIB_PATH"] = "#{bundler_path}" if ruby_version.ruby_version == "1.8.7"
         puts "Running: #{bundle_command}"
-        instrument "ruby.bundle_install" do
+        instrument "ruby.update_install" do
           bundle_time = Benchmark.realtime do
             bundler_output << pipe("#{bundle_command} --no-clean", out: "2>&1", env: env_vars, user_env: true)
           end
@@ -593,19 +593,6 @@ WARNING
         if $?.success?
           puts "Bundle completed (#{"%.2f" % bundle_time}s)"
           log "bundle", :status => "success"
-          puts "Cleaning up the bundler cache."
-          instrument "ruby.bundle_clean" do
-            # Only show bundle clean output when not using default cache
-            if load_default_cache?
-              run("#{bundle_bin} clean > /dev/null", user_env: true)
-            else
-              pipe("#{bundle_bin} clean", out: "2> /dev/null", user_env: true)
-            end
-          end
-          @bundler_cache.store
-
-          # Keep gem cache out of the slug
-          FileUtils.rm_rf("#{slug_vendor_base}/cache")
         else
           log "bundle", :status => "failure"
           error_message = "Failed to install gems via Bundler."
