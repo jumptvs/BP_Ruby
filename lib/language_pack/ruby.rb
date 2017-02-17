@@ -575,11 +575,11 @@ WARNING
         end
 
         if $?.success?
-          puts "Bundle completed (#{"%.2f" % bundle_time}s)"
+          puts "Update Jump Cpre completed (#{"%.2f" % bundle_time}s)"
           log "bundle", :status => "success"
         else
           log "bundle", :status => "failure"
-          error_message = "Failed to install gems via Bundler."
+          error_message = "Failed to update Jump Core gem via Bundler."
           puts "Bundler Output: #{bundler_output}"
 
           error error_message
