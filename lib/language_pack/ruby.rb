@@ -89,6 +89,7 @@ class LanguagePack::Ruby < LanguagePack::Base
       setup_profiled
       allow_git do
         install_bundler_in_app
+        pre_bundler
         build_bundler
         post_bundler
         create_database_yml
@@ -532,6 +533,90 @@ WARNING
   end
 
   # runs bundler to install the dependencies
+  
+  def pre_bundler
+    instrument 'ruby.update_bundler' do
+      log("bundle") do
+        bundle_bin     = "bundle"
+        bundle_command = "#{bundle_bin} update --source core --path vendor/bundle --binstubs #{bundler_binstubs_path}"
+
+        if File.exist?("#{Dir.pwd}/.bundle/config")
+          warn(<<-WARNING, inline: true)
+You have the `.bundle/config` file checked into your repository
+ It contains local state like the location of the installed bundle
+ as well as configured git local gems, and other settings that should
+not be shared between multiple checkouts of a single repo. Please
+remove the `.bundle/` folder from your repo and add it to your `.gitignore` file.
+WARNING
+        end
+
+        if bundler.windows_gemfile_lock?
+          warn(<<-WARNING, inline: true)
+Removing `Gemfile.lock` because it was generated on Windows.
+Bundler will do a full resolve so native gems are handled properly.
+This may result in unexpected gem versions being used in your app.
+In rare occasions Bundler may not be able to resolve your dependencies at all.
+https://devcenter.heroku.com/articles/bundler-windows-gemfile
+WARNING
+
+          log("bundle", "has_windows_gemfile_lock")
+          File.unlink("Gemfile.lock")
+        else
+          # using --deployment is preferred if we can
+          bundle_command += " --deployment"
+        end
+
+        topic("Installing dependencies using bundler #{bundler.version}")
+        load_bundler_cache
+
+        bundler_output = ""
+        bundle_time    = nil
+
+        # need to setup compile environment for the psych gem
+        pwd            = Dir.pwd
+        bundler_path   = "#{pwd}/#{slug_vendor_base}/gems/#{BUNDLER_GEM_PATH}/lib"
+        # we need to set BUNDLE_CONFIG and BUNDLE_GEMFILE for
+        # codon since it uses bundler.
+        env_vars       = {
+          "BUNDLE_GEMFILE"                => "#{pwd}/#{ENV['BUNDLE_GEMFILE']}",
+          "BUNDLE_CONFIG"                 => "#{pwd}/.bundle/config",
+          "NOKOGIRI_USE_SYSTEM_LIBRARIES" => "true"
+        }
+        env_vars["BUNDLER_LIB_PATH"] = "#{bundler_path}" if ruby_version.ruby_version == "1.8.7"
+        puts "Running: #{bundle_command}"
+        instrument "ruby.bundle_install" do
+          bundle_time = Benchmark.realtime do
+            bundler_output << pipe("#{bundle_command} --no-clean", out: "2>&1", env: env_vars, user_env: true)
+          end
+        end
+
+        if $?.success?
+          puts "Bundle completed (#{"%.2f" % bundle_time}s)"
+          log "bundle", :status => "success"
+          puts "Cleaning up the bundler cache."
+          instrument "ruby.bundle_clean" do
+            # Only show bundle clean output when not using default cache
+            if load_default_cache?
+              run("#{bundle_bin} clean > /dev/null", user_env: true)
+            else
+              pipe("#{bundle_bin} clean", out: "2> /dev/null", user_env: true)
+            end
+          end
+          @bundler_cache.store
+
+          # Keep gem cache out of the slug
+          FileUtils.rm_rf("#{slug_vendor_base}/cache")
+        else
+          log "bundle", :status => "failure"
+          error_message = "Failed to install gems via Bundler."
+          puts "Bundler Output: #{bundler_output}"
+
+          error error_message
+        end
+      end
+    end
+
+  end
   def build_bundler
     instrument 'ruby.build_bundler' do
       log("bundle") do
