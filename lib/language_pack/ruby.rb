@@ -550,22 +550,6 @@ remove the `.bundle/` folder from your repo and add it to your `.gitignore` file
 WARNING
         end
 
-        if bundler.windows_gemfile_lock?
-          warn(<<-WARNING, inline: true)
-Removing `Gemfile.lock` because it was generated on Windows.
-Bundler will do a full resolve so native gems are handled properly.
-This may result in unexpected gem versions being used in your app.
-In rare occasions Bundler may not be able to resolve your dependencies at all.
-https://devcenter.heroku.com/articles/bundler-windows-gemfile
-WARNING
-
-          log("bundle", "has_windows_gemfile_lock")
-          File.unlink("Gemfile.lock")
-        else
-          # using --deployment is preferred if we can
-          bundle_command += " --deployment"
-        end
-
         topic("Updating Jump Core using bundler #{bundler.version}")
         load_bundler_cache
 
@@ -586,7 +570,7 @@ WARNING
         puts "Running: #{bundle_command}"
         instrument "ruby.update_install" do
           bundle_time = Benchmark.realtime do
-            bundler_output << pipe("#{bundle_command} --no-clean", out: "2>&1", env: env_vars, user_env: true)
+            bundler_output << pipe("#{bundle_command}", out: "2>&1", env: env_vars, user_env: true)
           end
         end
 
