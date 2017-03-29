@@ -6,15 +6,15 @@ require "language_pack"
 require "language_pack/base"
 require "language_pack/ruby_version"
 require "language_pack/helpers/node_installer"
+require "language_pack/helpers/yarn_installer"
 require "language_pack/helpers/jvm_installer"
 require "language_pack/version"
 
 # base Ruby Language Pack. This is for any base ruby app.
 class LanguagePack::Ruby < LanguagePack::Base
   NAME                 = "ruby"
-  BUNDLER_VERSION      = "1.13.7"
+  BUNDLER_VERSION      = "1.14.6"
   BUNDLER_GEM_PATH     = "bundler-#{BUNDLER_VERSION}"
-  RBX_BASE_URL         = "https://binaries.rubini.us/heroku"
   NODE_BP_PATH         = "vendor/node/bin"
 
   # detects if this is a valid Ruby app
@@ -36,8 +36,8 @@ class LanguagePack::Ruby < LanguagePack::Base
   def initialize(build_path, cache_path=nil)
     super(build_path, cache_path)
     @fetchers[:mri]    = LanguagePack::Fetcher.new(VENDOR_URL, @stack)
-    @fetchers[:rbx]    = LanguagePack::Fetcher.new(RBX_BASE_URL, @stack)
     @node_installer    = LanguagePack::NodeInstaller.new(@stack)
+    @yarn_installer    = LanguagePack::YarnInstaller.new(@stack)
     @jvm_installer     = LanguagePack::JvmInstaller.new(slug_vendor_jvm, @stack)
   end
 
@@ -184,7 +184,7 @@ WARNING
   def ruby_version
     instrument 'ruby.ruby_version' do
       return @ruby_version if @ruby_version
-      new_app           = !File.exist?("vendor/heroku")
+      new_app           = !File.exist?("vendor/.cloudfoundry/metadata")
       last_version_file = "buildpack_ruby_version"
       last_version      = nil
       last_version      = @metadata.read(last_version_file).chomp if @metadata.exists?(last_version_file)
@@ -349,25 +349,10 @@ puts "Using Java Memory: #{ENV["JAVA_MEM"]}"
       Dir.chdir(slug_vendor_ruby) do
         instrument "ruby.fetch_ruby" do
           if ruby_version.rbx?
-            file     = "#{ruby_version.version_for_download}.tar.bz2"
-            sha_file = "#{file}.sha1"
-            @fetchers[:rbx].fetch(file)
-            @fetchers[:rbx].fetch(sha_file)
+            error(<<-ERROR)
+Rubinius is not supported by this buildpack, please choose a different engine
+ERROR
 
-            expected_checksum = File.read(sha_file).chomp
-            actual_checksum   = Digest::SHA1.file(file).hexdigest
-
-            error <<-ERROR_MSG unless expected_checksum == actual_checksum
-RBX Checksum for #{file} does not match.
-Expected #{expected_checksum} but got #{actual_checksum}.
-Please try pushing again in a few minutes.
-ERROR_MSG
-
-            run("tar jxf #{file}")
-            FileUtils.mv(Dir.glob("app/#{slug_vendor_ruby}/*"), ".")
-            FileUtils.rm_rf("app")
-            FileUtils.rm(file)
-            FileUtils.rm(sha_file)
           else
             @fetchers[:mri].fetch_untar("#{ruby_version.version_for_download}.tgz")
           end
@@ -415,7 +400,7 @@ ERROR
   end
 
   def new_app?
-    @new_app ||= !File.exist?("vendor/heroku")
+    @new_app ||= !File.exist?("vendor/.cloudfoundry/metadata")
   end
 
   # vendors JVM into the slug for JRuby
@@ -464,7 +449,11 @@ ERROR
   # default set of binaries to install
   # @return [Array] resulting list
   def binaries
-    add_node_js_binary
+    bins = add_node_js_binary
+    if File.exist?("yarn.lock")
+      bins << 'yarn'
+    end
+    bins
   end
 
   # vendors binaries into the slug
@@ -484,6 +473,8 @@ ERROR
     Dir.chdir(bin_dir) do |dir|
       if name.match(/^node\-/)
         @node_installer.install
+      elsif name == 'yarn'
+        @yarn_installer.install
       else
         @fetchers[:buildpack].fetch_untar("#{name}.tgz")
       end
@@ -784,7 +775,7 @@ params = CGI.parse(uri.query || "")
   end
 
   # decides if we need to enable the dev database addon
-  # @return [Array] the database addon if the pg gem is detected or an empty Array if it isn't.
+  # @return [Array] empty - we don't add database gems
   def add_dev_database_addon
     []
   end
@@ -819,7 +810,6 @@ params = CGI.parse(uri.query || "")
 
   def run_assets_precompile_rake_task
     instrument 'ruby.run_assets_precompile_rake_task' do
-
       precompile = rake.task("assets:precompile")
       return true unless precompile.is_defined?
 
@@ -853,7 +843,7 @@ params = CGI.parse(uri.query || "")
 
       full_ruby_version       = run_stdout(%q(ruby -v)).chomp
       rubygems_version        = run_stdout(%q(gem -v)).chomp
-      heroku_metadata         = "vendor/heroku"
+      cf_metadata         = "vendor/.cloudfoundry/metadata"
       old_rubygems_version    = nil
       ruby_version_cache      = "ruby_version"
       buildpack_version_cache = "buildpack_version"
@@ -864,7 +854,7 @@ params = CGI.parse(uri.query || "")
 
       old_rubygems_version = @metadata.read(ruby_version_cache).chomp if @metadata.exists?(ruby_version_cache)
       old_stack = @metadata.read(stack_cache).chomp if @metadata.exists?(stack_cache)
-      old_stack ||= DEFAULT_LEGACY_STACK
+      old_stack ||= "Unknown"
 
       stack_change  = old_stack != @stack
       convert_stack = @bundler_cache.old?
@@ -906,7 +896,7 @@ params = CGI.parse(uri.query || "")
         purge_bundler_cache
       end
 
-      FileUtils.mkdir_p(heroku_metadata)
+      FileUtils.mkdir_p(cf_metadata)
       @metadata.write(ruby_version_cache, full_ruby_version, false)
       @metadata.write(buildpack_version_cache, BUILDPACK_VERSION, false)
       @metadata.write(cf_buildpack_version_cache, CF_BUILDPACK_VERSION, false)

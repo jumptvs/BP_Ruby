@@ -52,7 +52,7 @@ module LanguagePack
     # Before Ruby 2.1 patch releases were done via patchlevel i.e. 1.9.3-p426 versus 1.9.3-p448
     # With 2.1 and above patches are released in the "minor" version instead i.e. 2.1.0 versus 2.1.1
     def patchlevel_is_significant?
-      Gem::Version.new(self.ruby_version) <= Gem::Version.new("2.1")
+      !jruby? && Gem::Version.new(self.ruby_version) <= Gem::Version.new("2.1")
     end
 
     def rake_is_vendored?
@@ -85,9 +85,9 @@ module LanguagePack
     # @return [String] the string representation of the Gemfile ruby DSL
     def to_gemfile
       if @engine == :ruby
-        "ruby '#{ruby_version}'"
+        "ruby '~> #{ruby_version}'"
       else
-        "ruby '#{ruby_version}', :engine => '#{engine}', :engine_version => '#{engine_version}'"
+        "ruby '~> #{ruby_version}', :engine => '#{engine}', :engine_version => '#{engine_version}'"
       end
     end
 
