@@ -13,7 +13,7 @@ require "language_pack/version"
 # base Ruby Language Pack. This is for any base ruby app.
 class LanguagePack::Ruby < LanguagePack::Base
   NAME                 = "ruby"
-  BUNDLER_VERSION      = "1.14.6"
+  BUNDLER_VERSION      = "1.13.7"
   BUNDLER_GEM_PATH     = "bundler-#{BUNDLER_VERSION}"
   NODE_BP_PATH         = "vendor/node/bin"
 
